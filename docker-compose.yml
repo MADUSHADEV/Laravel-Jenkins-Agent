@@ -1,0 +1,39 @@
+services:
+  jenkins-controller:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: jenkins-controller
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Set only the prefix, as the port defaults to 8080
+      - JENKINS_OPTS="--prefix=/jenkins"
+    networks:
+      - jenkins-net
+
+  laravel-agent:
+    build:
+      context: ./laravel-agent
+    container_name: laravel-agent
+    init: true
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - JENKINS_URL=http://jenkins-controller:8080/jenkins
+      - JENKINS_AGENT_NAME=laravel-agent-1
+      - JENKINS_SECRET=5895bf3e009145eb4d0e4ae6b366476ff993f0674f6bb79bb5de88f30949da67
+    networks:
+      - jenkins-net
+    depends_on:
+      - jenkins-controller
+
+volumes:
+  jenkins_home:
+
+networks:
+  jenkins-net:
+    driver: bridge
