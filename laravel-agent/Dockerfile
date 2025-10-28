@@ -58,11 +58,11 @@ RUN apt-get update && apt-get install -y docker-ce-cli
 # Find it on your host with: getent group docker | cut -d: -f3
 RUN \
   if ! getent group docker > /dev/null; then \
-    if getent group 999 > /dev/null; then \
-      EXISTING_GROUP=$(getent group 999 | cut -d: -f1); \
+    if getent group 110 > /dev/null; then \
+      EXISTING_GROUP=$(getent group 110 | cut -d: -f1); \
       groupdel $EXISTING_GROUP; \
     fi; \
-    groupadd --gid 999 docker; \
+    groupadd --gid 110 docker; \
   fi && \
   usermod -aG docker jenkins
 
