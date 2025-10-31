@@ -16,6 +16,10 @@ RUN apt-get update && apt-get install -y \
     sudo \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# === NEW STEP: Configure Sudoers ===
+# Allow the 'jenkins' user to run all commands with sudo without a password
+RUN echo "jenkins ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/jenkins
+
 # === Install PHP 8.3 & Extensions ===
 # Download the GPG key for the sury.org PHP repository
 RUN curl -sSLo /usr/share/keyrings/deb.sury.org-archive-keyring.gpg https://packages.sury.org/php/apt.gpg
