@@ -22,6 +22,7 @@ services:
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /home/azureuser:/ansible-files:ro
     environment:
       - JENKINS_URL=http://jenkins-controller:8080/jenkins
       - JENKINS_AGENT_NAME=laravel-agent-1
