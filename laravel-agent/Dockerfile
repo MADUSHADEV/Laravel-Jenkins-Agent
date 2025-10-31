@@ -52,6 +52,12 @@ RUN echo \
   $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 RUN apt-get update && apt-get install -y docker-ce-cli
 
+# === Install Ansible ===
+# Add the Ansible PPA (Personal Package Archive) to get a recent version
+RUN apt-get update && apt-get install -y software-properties-common
+RUN apt-add-repository --yes --update ppa:ansible/ansible
+RUN apt-get install -y ansible
+
 # === Permissions ===
 # Ensure a 'docker' group exists with the correct GID, then add the jenkins user to it.
 # IMPORTANT: Replace 999 with your host's Docker group ID.
