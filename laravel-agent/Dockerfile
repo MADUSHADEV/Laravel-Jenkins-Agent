@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     unzip \
     git \
+    sudo \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # === Install PHP 8.3 & Extensions ===
