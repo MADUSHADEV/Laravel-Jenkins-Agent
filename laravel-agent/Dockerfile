@@ -1,5 +1,5 @@
-# Start from the official Jenkins JNLP agent image with JDK 17
-FROM jenkins/inbound-agent:latest-jdk17
+# Start from the official Jenkins JNLP agent image with JDK 21
+FROM jenkins/inbound-agent:latest-jdk21
 
 # Switch to the root user to install system packages
 USER root
