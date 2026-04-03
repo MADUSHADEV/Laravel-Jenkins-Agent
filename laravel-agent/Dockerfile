@@ -4,6 +4,8 @@ FROM jenkins/inbound-agent:latest-jdk21
 # Switch to the root user to install system packages
 USER root
 
+ARG DOCKER_GID=998
+
 # Install essential dependencies for adding repositories and general utilities
 RUN apt-get update && apt-get install -y \
     apt-transport-https \
@@ -63,18 +65,14 @@ RUN apt-get update && apt-get install -y docker-ce-cli
 RUN apt-get update && apt-get install -y ansible
 
 # === Permissions ===
-# Ensure a 'docker' group exists with the correct GID, then add the jenkins user to it.
-# IMPORTANT: Replace 999 with your host's Docker group ID.
-# Find it on your host with: getent group docker | cut -d: -f3
-RUN \
-  if ! getent group docker > /dev/null; then \
-    if getent group 110 > /dev/null; then \
-      EXISTING_GROUP=$(getent group 110 | cut -d: -f1); \
-      groupdel $EXISTING_GROUP; \
+# Ensure a docker group with host-matching GID and add jenkins user to it.
+RUN set -eux; \
+    if getent group docker > /dev/null; then \
+      groupmod -g "${DOCKER_GID}" docker; \
+    else \
+      groupadd --gid "${DOCKER_GID}" docker; \
     fi; \
-    groupadd --gid 110 docker; \
-  fi && \
-  usermod -aG docker jenkins
+    usermod -aG docker jenkins
 
 # === Entrypoint ===
 # Copy and set executable permissions for the entrypoint script (as root)

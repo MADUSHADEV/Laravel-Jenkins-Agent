@@ -1,110 +1,164 @@
-# Laravel Jenkins Agent with Docker Compose
+# Laravel Jenkins Agent on AWS VM
 
-This project sets up a Jenkins CI/CD environment using Docker Compose, featuring a dedicated Jenkins agent specifically configured for building and testing Laravel applications.
+Practical Docker Compose blueprint for running a Jenkins controller plus a Laravel inbound agent on an AWS EC2 Linux VM.
 
-## Overview
+## Architecture
 
-The setup includes:
+- **Jenkins Controller:** `jenkins/jenkins:lts-jdk21` (JDK 21).
+- **Laravel Agent:** custom inbound agent image with PHP, Composer, Node.js, Docker CLI, and Ansible.
+- **Network:** private Docker bridge network (`jenkins-net`) for controller/agent communication.
+- **Persistence:** host-mounted Jenkins home directory (recommended path: `/srv/jenkins_home`).
 
-* **Jenkins Controller:** A standard Jenkins LTS instance running in a Docker container.
-* **Laravel Agent:** A custom Jenkins inbound agent (JNLP) built using Docker, equipped with the necessary tools for Laravel development.
+## AWS-ready defaults in this repo
 
-The agent connects automatically to the controller via JNLP once both containers are running.
+- Controller image is configurable and defaults to `lts-jdk21`.
+- Controller only binds HTTP to localhost by default (`127.0.0.1:8080`) to be placed behind a reverse proxy.
+- Default timezone is set through `.env` using `TZ=Asia/Kolkata` (UTC+05:30).
+- WebSocket mode is enabled for the inbound agent (avoids exposing port `50000`).
+- Agent secret must be provided through `.env` (not hardcoded in Compose).
+- Docker group ID for socket access is configurable via build arg (`DOCKER_GID`).
 
-## Agent Features
+## Prerequisites on EC2
 
-The custom `laravel-agent` Docker image includes:
+1. Install Docker Engine and Docker Compose plugin.
+2. Ensure your EC2 security group does **not** expose `8080` publicly if using reverse proxy only.
+3. Create persistent Jenkins home path:
 
-* **Base:** `jenkins/inbound-agent:latest-jdk17`
-* **PHP:** Version 8.3 with common Laravel extensions (cli, fpm, common, mysql, pgsql, sqlite, zip, gd, mbstring, curl, xml, bcmath) installed from `packages.sury.org`.
-* **Composer:** Latest version installed globally.
-* **Node.js:** Latest LTS version including `npm`.
-* **Git:** For source code management.
-* **Docker CLI:** Allows the agent to run Docker commands (build, push, etc.) by mounting the host's Docker socket (`/var/run/docker.sock`).
+```bash
+sudo mkdir -p /srv/jenkins_home
+sudo chown -R 1000:1000 /srv/jenkins_home
+```
 
-## Prerequisites
+## First-time setup
 
-* **Docker:** Ensure Docker is installed and running on your system.
-* **Docker Compose:** Ensure Docker Compose is installed.
+1. Clone this repository on your VM:
 
-## Setup Instructions
+```bash
+git clone <your-github-repo-url>
+cd Laravel-Jenkins-Agent
+```
 
-1.  **Clone the Repository (if applicable):**
-    ```bash
-    git clone <your-repository-url>
-    cd <your-repository-name>
-    ```
+2. Copy env template:
 
-2.  **Docker Socket Permissions (Linux/macOS):**
-    The agent container needs access to the host's Docker socket. The `Dockerfile` attempts to add the `jenkins` user to a `docker` group with GID `999`. If you encounter permission errors when running Docker commands inside the agent, you **must** find your host's Docker group GID and update the `Dockerfile`:
-    * Find the GID on your host:
-        ```bash
-        getent group docker | cut -d: -f3
-        ```
-    * Replace `999` in the `laravel-agent/Dockerfile` with the correct GID:
-        ```dockerfile
-        # ...
-        RUN groupadd --gid <YOUR_HOST_DOCKER_GID> docker || true
-        RUN usermod -aG docker jenkins
-        # ...
-        ```
-    * If you change the GID, you'll need to rebuild the image using the `--build` flag.
+```bash
+cp .env.example .env
+```
 
-3.  **Configure Jenkins Controller:**
-    * Start the Jenkins controller for the first time:
-        ```bash
-        docker compose up -d jenkins-controller
-        ```
-    * Access Jenkins UI at `http://localhost:8080/jenkins`.
-    * Complete the initial setup (get admin password, install suggested plugins, create admin user).
-    * Navigate to **Manage Jenkins > Nodes > New Node**.
-    * Enter Node Name: `laravel-agent-1` (must match `JENKINS_AGENT_NAME` in `docker-compose.yml`).
-    * Select **Permanent Agent** and click **Create**.
-    * Configure the agent:
-        * **Remote root directory:** `/home/jenkins/agent`
-        * **Labels:** `laravel docker` (or any labels you want to use)
-        * **Usage:** Use this node as much as possible
-        * **Launch method:** **Launch agent by connecting it to the controller**
-    * Click **Save**.
+3. Detect Docker group GID and update `.env`:
 
-4.  **Get Agent Secret:**
-    * Go back to the Nodes list and click on `laravel-agent-1`.
-    * Find the connection command and copy the **secret** value (a long hexadecimal string).
+```bash
+getent group docker | cut -d: -f3
+```
 
-5.  **Update `docker-compose.yml`:**
-    * Open the `docker-compose.yml` file.
-    * Replace the placeholder value for `JENKINS_SECRET` under the `laravel-agent` service with the actual secret you copied.
+Set the returned value as `DOCKER_GID`.
 
-6.  **Launch the Full Stack:**
-    ```bash
-    docker compose up --build -d
-    ```
-    The `--build` flag is necessary the first time or if you modified the `Dockerfile`.
+4. For Debian hosts, keep `ANSIBLE_FILES_PATH` aligned with your actual admin user home in `.env` (default example uses `/home/admin`).
 
-7.  **Verify Agent Connection:**
-    * Go back to **Manage Jenkins > Nodes**.
-    * `laravel-agent-1` should show as connected (no red 'x').
+5. Start only controller first:
 
-## Using the Agent in Jenkinsfile
+```bash
+docker compose up -d jenkins-controller
+```
 
-Target the agent in your `Jenkinsfile` using the labels you assigned during configuration (e.g., `laravel`):
+6. Open Jenkins through your VM (or reverse proxy) at:
+
+```text
+http://<vm-or-domain>:8080/jenkins
+```
+
+7. Complete Jenkins initial setup (unlock, plugins, admin user).
+
+8. Create node:
+
+- Name: value of `JENKINS_AGENT_NAME` from `.env` (default `laravel-agent-1`)
+- Type: Permanent Agent
+- Remote root directory: `/home/jenkins/agent`
+- Launch method: Launch agent by connecting it to the controller
+
+9. Copy node secret from node page and set `JENKINS_SECRET` in `.env`.
+
+10. Launch full stack:
+
+```bash
+docker compose up --build -d
+```
+
+11. Verify:
+
+```bash
+docker compose ps
+docker compose logs -f laravel-agent
+```
+
+## Reverse proxy recommendation (Nginx)
+
+Use Nginx/Caddy/ALB in front of Jenkins and terminate TLS there. Keep Jenkins container private when possible.
+
+Nginx essentials:
+
+- `proxy_set_header Host $host;`
+- `proxy_set_header X-Forwarded-Proto https;`
+- `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`
+- WebSocket upgrade headers enabled.
+
+If you use a path prefix, keep `JENKINS_PREFIX` aligned (default `/jenkins`).
+
+## Upgrade strategy (safe and repeatable)
+
+1. Backup `JENKINS_HOME`.
+2. Pin desired controller image in `.env` (`JENKINS_CONTROLLER_IMAGE=jenkins/jenkins:lts-jdk21`).
+3. Pull and restart:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+4. Validate UI, plugins, and agent connectivity.
+
+## Backup and restore
+
+### Backup
+
+```bash
+sudo tar -czf /tmp/jenkins-home-$(date +%F).tgz -C /srv jenkins_home
+```
+
+Copy archive to S3 or other remote storage.
+
+### Restore
+
+```bash
+docker compose down
+sudo rm -rf /srv/jenkins_home
+sudo mkdir -p /srv/jenkins_home
+sudo tar -xzf /path/to/backup.tgz -C /srv
+sudo chown -R 1000:1000 /srv/jenkins_home
+docker compose up -d
+```
+
+## Security notes
+
+- Keep `.env` private and never commit real secrets.
+- Do not expose Docker socket to controller unless required.
+- Inbound agent with Docker socket has high privileges on host; treat it as trusted.
+- Restrict Jenkins admin access and enforce strong credentials.
+
+## Jenkinsfile example (Laravel agent)
 
 ```groovy
 pipeline {
-    agent {
-        label 'laravel'
-    }
+  agent { label 'laravel' }
 
-    stages {
-        stage('Build & Test') {
-            steps {
-                sh 'php --version'
-                sh 'composer --version'
-                sh 'node --version'
-                sh 'npm --version'
-                sh 'docker --version'
-                // Your Laravel build/test commands here
-            }
-        }
+  stages {
+    stage('Tooling check') {
+      steps {
+        sh 'php -v'
+        sh 'composer --version'
+        sh 'node --version'
+        sh 'npm --version'
+        sh 'docker --version'
+      }
     }
+  }
 }

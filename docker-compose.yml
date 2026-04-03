@@ -1,39 +1,40 @@
 services:
   jenkins-controller:
-    image: jenkins/jenkins:lts-jdk17
+    image: ${JENKINS_CONTROLLER_IMAGE:-jenkins/jenkins:lts-jdk21}
     container_name: jenkins-controller
+    restart: unless-stopped
+    init: true
     ports:
-      - "8080:8080"
-      - "50000:50000"
+      - "${JENKINS_HTTP_BIND:-127.0.0.1}:${JENKINS_HTTP_PORT:-8080}:8080"
     volumes:
-      - jenkins_home:/var/jenkins_home
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${JENKINS_HOME_PATH:-/srv/jenkins_home}:/var/jenkins_home
     environment:
-      # Set only the prefix, as the port defaults to 8080
-      - JENKINS_OPTS="--prefix=/jenkins"
+      - JENKINS_OPTS=--prefix=${JENKINS_PREFIX:-/jenkins}
+      - TZ=${TZ:-UTC}
     networks:
       - jenkins-net
 
   laravel-agent:
     build:
       context: ./laravel-agent
+      args:
+        DOCKER_GID: ${DOCKER_GID:-998}
     container_name: laravel-agent
     init: true
-    restart: always
+    restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/azureuser:/ansible-files:ro
+      - ${ANSIBLE_FILES_PATH:-/home/admin}:/ansible-files:ro
     environment:
-      - JENKINS_URL=http://jenkins-controller:8080/jenkins
-      - JENKINS_AGENT_NAME=laravel-agent-1
-      - JENKINS_SECRET=5895bf3e009145eb4d0e4ae6b366476ff993f0674f6bb79bb5de88f30949da67
+      - JENKINS_URL=http://jenkins-controller:8080${JENKINS_PREFIX:-/jenkins}
+      - JENKINS_AGENT_NAME=${JENKINS_AGENT_NAME:-laravel-agent-1}
+      - JENKINS_SECRET=${JENKINS_SECRET:?Set JENKINS_SECRET in .env}
+      - JENKINS_WEB_SOCKET=true
+      - JENKINS_AGENT_WORKDIR=/home/jenkins/agent
     networks:
       - jenkins-net
     depends_on:
       - jenkins-controller
-
-volumes:
-  jenkins_home:
 
 networks:
   jenkins-net:
