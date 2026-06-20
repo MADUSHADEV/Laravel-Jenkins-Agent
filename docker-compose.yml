@@ -1,33 +1,33 @@
 services:
-  jenkins-controller:
-    image: ${JENKINS_CONTROLLER_IMAGE:-jenkins/jenkins:lts-jdk21}
-    container_name: jenkins-controller
-    restart: unless-stopped
-    init: true
-    ports:
-      - "${JENKINS_HTTP_BIND:-127.0.0.1}:${JENKINS_HTTP_PORT:-8080}:8080"
-    volumes:
-      - ${JENKINS_HOME_PATH:-/srv/jenkins_home}:/var/jenkins_home
-    environment:
-      - JENKINS_OPTS=--prefix=${JENKINS_PREFIX:-/jenkins}
-      - TZ=${TZ:-UTC}
-    networks:
-      - jenkins-net
+  # jenkins-controller:
+  #   image: ${JENKINS_CONTROLLER_IMAGE:-jenkins/jenkins:lts-jdk21}
+  #   container_name: jenkins-controller
+  #   restart: unless-stopped
+  #   init: true
+  #   ports:
+  #     - "${JENKINS_HTTP_BIND:-127.0.0.1}:${JENKINS_HTTP_PORT:-8080}:8080"
+  #   volumes:
+  #     - ${JENKINS_HOME_PATH:-/srv/jenkins_home}:/var/jenkins_home
+  #   environment:
+  #     - JENKINS_OPTS=--prefix=${JENKINS_PREFIX:-/jenkins}
+  #     - TZ=${TZ:-UTC}
+  #   networks:
+  #     - jenkins-net
 
-  redis:
-    image: redis:${REDIS_VERSION:-7-alpine}
-    container_name: redis-cache
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - ${REDIS_DATA_PATH:-/srv/redis_data}:/data
-    networks:
-      - jenkins-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # redis:
+  #   image: redis:${REDIS_VERSION:-7-alpine}
+  #   container_name: redis-cache
+  #   restart: unless-stopped
+  #   command: redis-server --appendonly yes
+  #   volumes:
+  #     - ${REDIS_DATA_PATH:-/srv/redis_data}:/data
+  #   networks:
+  #     - jenkins-net
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
   laravel-agent:
     build:
