@@ -100,6 +100,24 @@ redis:
 
 Update `JENKINS_URL` in `docker-compose.yml` environment section. Use `host.docker.internal` for host VM access.
 
+### Fixing DOCKER_GID conflict during build
+
+If build fails with `groupadd: GID '996' already exists`, the Dockerfile handles this automatically by checking if the GID is taken and renaming that group to `docker`. The logic in `Dockerfile` (lines 69-75):
+
+```dockerfile
+RUN set -eux; \
+    if getent group docker > /dev/null; then \
+      groupmod -g "${DOCKER_GID}" docker; \
+    elif getent group "${DOCKER_GID}" > /dev/null; then \
+      groupmod -n docker "$(getent group "${DOCKER_GID}" | cut -d: -f1)"; \
+    else \
+      groupadd --gid "${DOCKER_GID}" docker; \
+    fi; \
+    usermod -aG docker jenkins
+```
+
+To find your host's Docker GID: `getent group docker | cut -d: -f3`
+
 ### Adding a new pipeline service (e.g., Mailhog)
 
 Add to `docker-compose.yml` as a new service. Do NOT add to `depends_on` for `laravel-agent` unless the agent needs direct access.

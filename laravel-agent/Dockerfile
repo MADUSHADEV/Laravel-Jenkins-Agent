@@ -69,6 +69,8 @@ RUN apt-get update && apt-get install -y ansible
 RUN set -eux; \
     if getent group docker > /dev/null; then \
       groupmod -g "${DOCKER_GID}" docker; \
+    elif getent group "${DOCKER_GID}" > /dev/null; then \
+      groupmod -n docker "$(getent group "${DOCKER_GID}" | cut -d: -f1)"; \
     else \
       groupadd --gid "${DOCKER_GID}" docker; \
     fi; \
