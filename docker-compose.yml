@@ -14,6 +14,21 @@ services:
     networks:
       - jenkins-net
 
+  redis:
+    image: redis:${REDIS_VERSION:-7-alpine}
+    container_name: redis-cache
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - ${REDIS_DATA_PATH:-/srv/redis_data}:/data
+    networks:
+      - jenkins-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   laravel-agent:
     build:
       context: ./laravel-agent
@@ -35,6 +50,7 @@ services:
       - jenkins-net
     depends_on:
       - jenkins-controller
+      - redis
 
 networks:
   jenkins-net:
