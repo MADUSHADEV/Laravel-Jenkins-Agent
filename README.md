@@ -1,44 +1,46 @@
-# Laravel Jenkins Agent on Hetzner VM
+# Laravel Jenkins Agent
 
-Practical Docker Compose blueprint for running a Jenkins controller plus a Laravel inbound agent on a Hetzner Linux VM.
+Docker-based Jenkins inbound agent for building, testing, and deploying Laravel applications. Jenkins runs natively on the host VM; the agent, Redis, and ephemeral PostgreSQL run in Docker.
 
 ## Architecture
 
-- **Jenkins Controller:** `jenkins/jenkins:lts-jdk21` (JDK 21).
-- **Laravel Agent:** custom inbound agent image with PHP, Composer, Node.js, Docker CLI, and Ansible.
-- **Redis Cache:** `redis:7-alpine` for caching management.
-- **Network:** private Docker bridge network (`jenkins-net`) for controller/agent/redis communication.
-- **Persistence:** host-mounted Jenkins home directory (recommended path: `/srv/jenkins_home`) and Redis data directory (recommended path: `/srv/redis_data`).
+- **Jenkins Controller:** Runs natively on host VM (not in Docker).
+- **Laravel Agent:** Custom inbound agent image with PHP, Composer, Node.js, Docker CLI, and Ansible.
+- **Redis Cache:** `redis:7-alpine` for caching and queue management (always-on in Docker).
+- **PostgreSQL:** Ephemeral per build — created at build start, destroyed after (not in `docker-compose.yml`).
+- **Network:** Docker bridge network (`jenkins-net`) for agent/Redis/ephemeral PostgreSQL communication.
 
-## Hetzner-ready defaults in this repo
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed comparison of architecture options and network diagrams.
 
-- Controller image is configurable and defaults to `lts-jdk21`.
-- Controller only binds HTTP to localhost by default (`127.0.0.1:8080`) to be placed behind a reverse proxy.
-- Default timezone is set through `.env` using `TZ=Asia/Kolkata` (UTC+05:30).
-- WebSocket mode is enabled for the inbound agent (avoids exposing port `50000`).
-- Agent secret must be provided through `.env` (not hardcoded in Compose).
-- Docker group ID for socket access is configurable via build arg (`DOCKER_GID`).
-- Redis service included with persistent storage and health checks.
+## Prerequisites on Host VM
 
-## Prerequisites on Hetzner VM
-
-1. Install Docker Engine and Docker Compose plugin.
-2. Ensure your firewall (Hetzner Cloud Firewall or ufw) does **not** expose `8080` publicly if using reverse proxy only.
-3. Create persistent Jenkins home path and Redis data path:
+1. Jenkins installed and running natively (or via Docker on host).
+2. Docker Engine and Docker Compose plugin installed.
+3. Reverse proxy (Nginx/Caddy) in front of Jenkins (recommended).
 
 ```bash
-sudo mkdir -p /srv/jenkins_home /srv/redis_data
-sudo chown -R 1000:1000 /srv/jenkins_home
+# Verify Jenkins is running
+curl http://127.0.0.1:8080
+
+# Verify Docker is running
+docker --version
+docker compose version
+```
+
+4. Create persistent Redis data path:
+
+```bash
+sudo mkdir -p /srv/redis_data
 sudo chown -R 999:999 /srv/redis_data
 ```
 
-4. Install Ansible on your host VM (for managing deployments):
+5. Install Ansible on host VM (for managing deployments):
 
 ```bash
 sudo apt update && sudo apt install -y ansible
 ```
 
-## First-time setup
+## First-time Setup
 
 1. Clone this repository on your VM:
 
@@ -61,38 +63,24 @@ getent group docker | cut -d: -f3
 
 Set the returned value as `DOCKER_GID`.
 
-4. For Debian hosts, keep `ANSIBLE_FILES_PATH` aligned with your actual admin user home in `.env` (default example uses `/home/admin`).
+4. Open Jenkins and create a node:
 
-5. Start only controller first:
+- Go to **Manage Jenkins** → **Manage Nodes** → **New Node**
+- **Node name:** value of `JENKINS_AGENT_NAME` from `.env` (default `laravel-agent-1`)
+- **Type:** Permanent Agent
+- **Remote root directory:** `/home/jenkins/agent`
+- **Launch method:** Launch agent by connecting it to the controller
+- **Enable WebSocket:** Checked
 
-```bash
-docker compose up -d jenkins-controller redis
-```
+5. Copy node secret from the node page and set `JENKINS_SECRET` in `.env`.
 
-6. Open Jenkins through your VM (or reverse proxy) at:
-
-```text
-http://<vm-or-domain>:8080/jenkins
-```
-
-7. Complete Jenkins initial setup (unlock, plugins, admin user).
-
-8. Create node:
-
-- Name: value of `JENKINS_AGENT_NAME` from `.env` (default `laravel-agent-1`)
-- Type: Permanent Agent
-- Remote root directory: `/home/jenkins/agent`
-- Launch method: Launch agent by connecting it to the controller
-
-9. Copy node secret from node page and set `JENKINS_SECRET` in `.env`.
-
-10. Launch full stack:
+6. Build and start the agent:
 
 ```bash
 docker compose up --build -d
 ```
 
-11. Verify:
+7. Verify:
 
 ```bash
 docker compose ps
@@ -100,111 +88,204 @@ docker compose logs -f laravel-agent
 docker compose logs -f redis
 ```
 
-## Reverse proxy recommendation (Nginx)
+## Pipeline Usage
 
-Use Nginx/Caddy/ALB in front of Jenkins and terminate TLS there. Keep Jenkins container private when possible.
+The agent has Docker socket access, so it can create ephemeral PostgreSQL containers per build.
 
-Nginx essentials:
-
-- `proxy_set_header Host $host;`
-- `proxy_set_header X-Forwarded-Proto https;`
-- `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`
-- WebSocket upgrade headers enabled.
-
-If you use a path prefix, keep `JENKINS_PREFIX` aligned (default `/jenkins`).
-
-## Upgrade strategy (safe and repeatable)
-
-1. Backup `JENKINS_HOME` and Redis data.
-2. Pin desired controller image in `.env` (`JENKINS_CONTROLLER_IMAGE=jenkins/jenkins:lts-jdk21`).
-3. Pull and restart:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-4. Validate UI, plugins, and agent connectivity.
-
-## Backup and restore
-
-### Backup
-
-```bash
-sudo tar -czf /tmp/jenkins-home-$(date +%F).tgz -C /srv jenkins_home
-sudo tar -czf /tmp/redis-data-$(date +%F).tgz -C /srv redis_data
-```
-
-Copy archive to S3, Hetzner Object Storage, or other remote storage.
-
-### Restore
-
-```bash
-docker compose down
-sudo rm -rf /srv/jenkins_home /srv/redis_data
-sudo mkdir -p /srv/jenkins_home /srv/redis_data
-sudo tar -xzf /path/to/jenkins-backup.tgz -C /srv
-sudo tar -xzf /path/to/redis-backup.tgz -C /srv
-sudo chown -R 1000:1000 /srv/jenkins_home
-sudo chown -R 999:999 /srv/redis_data
-docker compose up -d
-```
-
-## Security notes
-
-- Keep `.env` private and never commit real secrets.
-- Do not expose Docker socket to controller unless required.
-- Inbound agent with Docker socket has high privileges on host; treat it as trusted.
-- Restrict Jenkins admin access and enforce strong credentials.
-- Redis is bound to internal Docker network only (not exposed externally).
-
-## Jenkinsfile example (Laravel agent with Redis)
+### Basic Jenkinsfile
 
 ```groovy
 pipeline {
-  agent { label 'laravel' }
+  agent { label 'laravel-agent-1' }
 
   environment {
-    REDIS_HOST = 'redis'
-    REDIS_PORT = '6379'
+    DB_HOST     = "test-postgres-${env.BUILD_NUMBER}"
+    DB_PORT     = '5432'
+    DB_DATABASE = 'laravel_test'
+    DB_USERNAME = 'laravel'
+    DB_PASSWORD = 'secret'
+    REDIS_HOST  = 'redis'
+    REDIS_PORT  = '6379'
   }
 
   stages {
-    stage('Tooling check') {
+    stage('Start Test PostgreSQL') {
       steps {
-        sh 'php -v'
-        sh 'composer --version'
-        sh 'node --version'
-        sh 'npm --version'
-        sh 'docker --version'
-        sh 'redis-cli -h ${REDIS_HOST} ping'
+        sh """
+          docker run -d --name test-postgres-${env.BUILD_NUMBER} \
+            --network jenkins-net \
+            -e POSTGRES_DB=laravel_test \
+            -e POSTGRES_USER=laravel \
+            -e POSTGRES_PASSWORD=secret \
+            postgres:16-alpine
+
+          until docker exec test-postgres-${env.BUILD_NUMBER} pg_isready -U laravel; do
+            sleep 1
+          done
+        """
       }
     }
 
-    stage('Test Redis Connection') {
+    stage('Flush Redis') {
+      steps {
+        sh 'redis-cli -h redis FLUSHALL'
+      }
+    }
+
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Setup') {
       steps {
         sh '''
-          echo "Testing Redis connection..."
-          redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} SET test_key "hello_from_jenkins"
-          redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} GET test_key
+          composer install --no-interaction --prefer-dist
+          cp .env.example .env
+          php artisan key:generate
         '''
       }
+    }
+
+    stage('Migrate') {
+      steps {
+        sh 'php artisan migrate --force'
+      }
+    }
+
+    stage('Test') {
+      steps {
+        sh 'php artisan test'
+      }
+    }
+  }
+
+  post {
+    always {
+      sh "docker rm -f test-postgres-${env.BUILD_NUMBER} || true"
     }
   }
 }
 ```
 
-## Using Redis in your Laravel application
-
-When deploying Laravel applications through this Jenkins pipeline, configure your `.env` file to use the Redis service:
+### Laravel .env for Pipeline
 
 ```env
+DB_CONNECTION=pgsql
+DB_HOST=test-postgres-${BUILD_NUMBER}
+DB_PORT=5432
+DB_DATABASE=laravel_test
+DB_USERNAME=laravel
+DB_PASSWORD=secret
+
 CACHE_DRIVER=redis
 SESSION_DRIVER=redis
 QUEUE_CONNECTION=redis
 REDIS_HOST=redis
 REDIS_PORT=6379
-REDIS_PASSWORD=null
 ```
 
-The `redis` hostname is automatically resolvable within the Docker network for all containers.
+## Reverse Proxy (Nginx)
+
+Use Nginx/Caddy in front of Jenkins and terminate TLS there.
+
+Nginx essentials:
+
+```nginx
+server {
+    listen 80;
+    server_name jenkins.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support for JNLP agent
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+If using a path prefix, set `JENKINS_PREFIX` in `.env` to match.
+
+## Backup and Restore
+
+### Redis Backup
+
+```bash
+# Backup
+docker exec test-redis redis-cli BGSAVE
+sudo cp /srv/redis_data/dump.rdb /backup/redis-dump-$(date +%F).rdb
+
+# Restore
+docker compose down
+sudo cp /backup/redis-dump-YYYY-MM-DD.rdb /srv/redis_data/dump.rdb
+sudo chown -R 999:999 /srv/redis_data/dump.rdb
+docker compose up -d
+```
+
+## Security Notes
+
+- Keep `.env` private and never commit real secrets.
+- Do not expose Docker socket to untrusted containers.
+- Inbound agent with Docker socket has high privileges on host; treat it as trusted.
+- Restrict Jenkins admin access and enforce strong credentials.
+- Redis is bound to internal Docker network only (not exposed externally).
+- PostgreSQL is ephemeral and not exposed externally.
+
+## Troubleshooting
+
+### Agent can't connect to Jenkins
+
+```bash
+# Verify host.docker.internal resolves from inside agent
+docker exec laravel-agent ping host.docker.internal
+
+# Check Jenkins is running on host
+curl http://127.0.0.1:8080
+
+# Check agent logs
+docker compose logs -f laravel-agent
+```
+
+### Redis connection refused
+
+```bash
+# Check Redis is running
+docker compose ps redis
+
+# Test Redis connection from agent
+docker exec laravel-agent redis-cli -h redis ping
+# Should return: PONG
+```
+
+### Agent can't create Docker containers
+
+```bash
+# Verify Docker socket is mounted
+docker exec laravel-agent ls -la /var/run/docker.sock
+
+# Check Docker GID matches host
+docker exec laravel-agent id jenkins
+# Should show jenkins user in docker group
+```
+
+## File Structure
+
+```
+Laravel-Jenkins-Agent/
+├── docker-compose.yml          # Agent + Redis services
+├── .env                        # Environment variables (not committed)
+├── .env.example                # Template for .env
+├── ARCHITECTURE.md             # Detailed architecture guide
+├── README.md                   # This file
+├── .gitignore                  # Excludes .env
+└── laravel-agent/
+    ├── Dockerfile              # Agent image (PHP, Composer, Node, Docker CLI)
+    └── entrypoint.sh           # Starts JNLP agent connection
+```
