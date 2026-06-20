@@ -33,7 +33,7 @@ services:
     build:
       context: ./laravel-agent
       args:
-        DOCKER_GID: ${DOCKER_GID:-998}
+        DOCKER_GID: ${DOCKER_GID:-996}
     container_name: laravel-agent
     init: true
     restart: unless-stopped
