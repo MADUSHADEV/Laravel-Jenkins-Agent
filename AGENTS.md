@@ -45,8 +45,7 @@ Before making any changes to this project, you **must** read [ARCHITECTURE.md](A
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JENKINS_HTTP_PORT` | `8080` | Jenkins port on host VM |
-| `JENKINS_PREFIX` | (empty) | Path prefix if behind reverse proxy |
+| `JENKINS_URL` | (required) | Jenkins URL through reverse proxy (HTTPS) |
 | `JENKINS_AGENT_NAME` | `laravel-agent-1` | Agent node name in Jenkins |
 | `JENKINS_SECRET` | (required) | Node secret from Jenkins UI |
 | `DOCKER_GID` | `996` | Host Docker group GID |
@@ -69,11 +68,11 @@ Before making any changes to this project, you **must** read [ARCHITECTURE.md](A
 
 1. **Never commit `.env`** — it contains secrets.
 2. **Never modify the Dockerfile** unless adding new system dependencies.
-3. **Always use `host.docker.internal`** when agent needs to reach host services.
-4. **Always use Docker service names** (`redis`, `test-postgres-{N}`) for inter-container communication.
-5. **Ephemeral PostgreSQL** — never add PostgreSQL to `docker-compose.yml`. It is created per build in the Jenkinsfile.
-6. **Redis is for testing** — container name is `test-redis`, not `redis-cache`.
-7. **Docker socket access** — the agent has full Docker control. Treat it as trusted.
+3. **Always use Docker service names** (`redis`, `test-postgres-{N}`) for inter-container communication.
+4. **Ephemeral PostgreSQL** — never add PostgreSQL to `docker-compose.yml`. It is created per build in the Jenkinsfile.
+5. **Redis is for testing** — container name is `test-redis`, not `redis-cache`.
+6. **Docker socket access** — the agent has full Docker control. Treat it as trusted.
+7. **WebSocket requires HTTPS** — plain HTTP to Jenkins port 8080 causes 400 handshake errors. Always connect through the reverse proxy.
 
 ## Common Tasks
 
@@ -98,7 +97,7 @@ redis:
 
 ### Updating agent to connect to different Jenkins URL
 
-Update `JENKINS_URL` in `docker-compose.yml` environment section. Use `host.docker.internal` for host VM access.
+Update `JENKINS_URL` in `.env` file. The agent connects through the HTTPS reverse proxy (not directly to Jenkins port 8080). WebSocket requires HTTPS — plain HTTP causes 400 handshake errors.
 
 ### Fixing DOCKER_GID conflict during build
 

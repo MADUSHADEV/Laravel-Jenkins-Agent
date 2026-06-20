@@ -181,19 +181,13 @@ pipeline {
 │  │  │              │──│ PostgreSQL (ephemeral)│  │   │
 │  │  └──────────────┘  │ test-postgres-{N}   │  │    │
 │  │                      └─────────────────────┘  │    │
-│  └──────────────────────────────────────────────┘    │
-│                                                      │
-│  ┌──────────────────────────────────────────────┐    │
-│  │  host.docker.internal                        │    │
-│  │  → Agent reaches host Jenkins via this DNS   │    │
-│  └──────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────┘
+│  └──────────────────────────────────────────────────────┘
 ```
 
 **How it works:**
 - **Redis**: Always running in Docker, flushed at build start (`FLUSHALL`)
 - **PostgreSQL**: Created fresh per build, destroyed after — no persistent data
-- **Agent**: Uses `host.docker.internal` to reach Jenkins on the host VM
+- **Agent**: Connects to Jenkins through HTTPS reverse proxy (`https://jenkins.algowrite.com/`)
 - **Docker socket**: Mounted so agent can create/destroy ephemeral PostgreSQL
 
 **Jenkinsfile example:**
@@ -355,7 +349,7 @@ pipeline {
 
 | From | To | DNS Name | Resolves To |
 |------|----|----------|-------------|
-| Agent | Jenkins | `host.docker.internal` | Host VM IP (via `extra_hosts`) |
+| Agent | Jenkins | `jenkins.algowrite.com` | Reverse proxy (HTTPS, external) |
 | Agent | Redis | `redis` | Redis container IP (Docker DNS) |
 | Agent | PostgreSQL | `test-postgres-{N}` | PostgreSQL container IP (Docker DNS) |
 | Agent | Redis (alt) | `test-redis` | Redis container alias |
@@ -425,9 +419,8 @@ In Jenkins UI → Manage Jenkins → Manage Nodes → New Node:
 ### .env (Docker Compose)
 
 ```bash
-# Jenkins (runs on host VM)
-JENKINS_HTTP_PORT=8080          # Port where Jenkins listens on host
-JENKINS_PREFIX=                 # Empty if no path prefix through reverse proxy
+# Jenkins (runs on host VM, behind reverse proxy)
+JENKINS_URL=https://jenkins.algowrite.com/   # Agent connects through HTTPS reverse proxy
 JENKINS_AGENT_NAME=laravel-agent-1
 JENKINS_SECRET=<your-node-secret>
 
@@ -525,14 +518,14 @@ REDIS_PORT=6379
 ### Agent can't connect to Jenkins
 
 ```bash
-# Verify host.docker.internal resolves from inside agent
-docker exec laravel-agent ping host.docker.internal
-
-# Check Jenkins is running on host
-curl http://127.0.0.1:8080
+# Verify Jenkins is accessible through reverse proxy
+curl -v https://jenkins.algowrite.com/login
 
 # Check agent logs
 docker compose logs -f laravel-agent
+
+# Verify agent can resolve the domain
+docker exec laravel-agent nslookup jenkins.algowrite.com
 ```
 
 ### PostgreSQL not ready
