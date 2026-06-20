@@ -1,5 +1,6 @@
-# Start from the official Jenkins JNLP agent image with JDK 21
-FROM jenkins/inbound-agent:latest-jdk21
+# Jenkins inbound agent - pinned to 3206 for Jenkins 2.555.x compatibility
+# latest-jdk21 (3355+) is too new and causes "X-Remoting-Capability" handshake errors
+FROM jenkins/inbound-agent:3206.vb_15dcf73f6a_9-1-jdk21
 
 # Switch to the root user to install system packages
 USER root
